@@ -7,13 +7,15 @@ import {
 import { Markdown } from '@kb/core/react';
 import { cachedVault, getMeta, setMeta } from './store.ts';
 import { sync, lastSynced, markSeen, seenMap, type SyncResult } from './sync.ts';
-import { checkAccess, type Repo } from './github.ts';
+import { checkAccess, type RepoRef } from './github.ts';
+import { token, completeSignIn, signedIn as isSignedIn, signOut } from './auth.ts';
 import { Setup } from './Setup.tsx';
 
 type Tab = 'notes' | 'wikis' | 'revisit';
 
 export default function App() {
-  const [repo, setRepo] = useState<Repo | null>(null);
+  const [repo, setRepo] = useState<RepoRef | null>(null);
+  const [authed, setAuthed] = useState<boolean | null>(null);
   const [vault, setVault] = useState<Vault | null>(null);
   const [tab, setTab] = useState<Tab>('notes');
   const [open, setOpen] = useState<{ kind: 'note'; id: string } | { kind: 'wiki'; tag: string } | null>(null);
@@ -27,7 +29,14 @@ export default function App() {
   const source = useMemo(cachedVault, []);
 
   useEffect(() => {
-    void getMeta<Repo>('repo').then((r) => r && setRepo(r));
+    // completeSignIn runs before anything else touches GitHub: on the hop back
+    // from the sign-in the token does not exist yet, and a sync fired in
+    // parallel would fail and show an error for a session that is fine.
+    void (async () => {
+      try { await completeSignIn(); } catch (e) { setStatus(String(e)); }
+      setAuthed(await isSignedIn());
+    })();
+    void getMeta<RepoRef>('repo').then((r) => r && setRepo(r));
     void seenMap().then(setSeen);
     void lastSynced().then((t) => t && setStatus(`synced ${new Date(t).toLocaleTimeString()}`));
     const on = () => setOnline(true), off = () => setOnline(false);
@@ -39,21 +48,21 @@ export default function App() {
   useEffect(() => { void reload(); }, [reload]);
 
   const runSync = useCallback(async (silent = false) => {
-    if (!repo || busy) return;
+    if (!repo || !authed || busy) return;
     setBusy(true);
     if (!silent) setStatus('syncing…');
     try {
-      const r: SyncResult = await sync(repo);
+      const r: SyncResult = await sync(token, repo);
       await reload();
       setStatus(r.conflicts.length ? `conflict: ${r.conflicts[0].split('/').pop()}` : r.message);
     } catch (e) {
       setStatus(navigator.onLine ? `sync failed: ${e instanceof Error ? e.message : e}` : 'offline');
     } finally { setBusy(false); }
-  }, [repo, busy, reload]);
+  }, [repo, authed, busy, reload]);
 
   // On launch and on regaining signal. Not on a timer: a phone in a pocket
   // polling GitHub every few minutes spends battery to learn nothing.
-  useEffect(() => { if (repo && online) void runSync(true); /* eslint-disable-next-line */ }, [repo, online]);
+  useEffect(() => { if (repo && authed && online) void runSync(true); /* eslint-disable-next-line */ }, [repo, authed, online]);
 
   const notes: Note[] = useMemo(() => {
     if (!vault) return [];
@@ -101,9 +110,11 @@ export default function App() {
     setDraft('');
   };
 
-  if (!repo) {
-    return <Setup onDone={async (r) => {
-      const check = await checkAccess(r);
+  if (authed === null) return <div className="empty">…</div>;
+
+  if (!authed || !repo) {
+    return <Setup auth={token} signedIn={authed} onPick={async (r) => {
+      const check = await checkAccess(token, r);
       if (!check.ok) return check.reason;
       await setMeta('repo', r);
       setRepo(r);
@@ -168,6 +179,11 @@ export default function App() {
     <div className="screen">
       <header className="bar">
         <h1>{tab === 'notes' ? 'Notes' : tab === 'wikis' ? 'Wikis' : 'Revisit'}</h1>
+        <span className="grow" />
+        <button className="signout" title={`${repo.owner}/${repo.name}`}
+                onClick={() => void signOut().then(() => { setRepo(null); setAuthed(false); })}>
+          {repo.name}
+        </button>
         <button className="act" onClick={() => void runSync()} disabled={busy}>{busy ? '…' : '↻'}</button>
       </header>
 

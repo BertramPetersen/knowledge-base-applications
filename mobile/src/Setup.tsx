@@ -1,43 +1,70 @@
-import { useState } from 'react';
-import type { Repo } from './github.ts';
+import { useEffect, useState } from 'react';
+import { signIn } from './auth.ts';
+import { listRepos, viewer, type RepoRef, type TokenSource } from './github.ts';
 
 /**
- * First run. The token is checked against the repo before it is stored, because
- * the alternative is an app that looks connected and fails silently on the first
- * sync — and the usual cause is a fine-grained token missing Contents: write,
- * which is worth naming rather than making the owner guess.
+ * First run, in two steps and no typing.
+ *
+ * Step one is a sign-in, which replaces pasting a personal access token onto
+ * every device the owner uses. Step two is picking a vault from the
+ * repositories the App was installed on — the owner already answered that
+ * question at install time, so this is a list, not a form.
  */
-export function Setup({ onDone }: { onDone: (r: Repo) => Promise<string | null> }) {
-  const [owner, setOwner] = useState('');
-  const [name, setName] = useState('');
-  const [branch, setBranch] = useState('main');
-  const [token, setToken] = useState('');
+export function Setup({ auth, signedIn, onPick }: {
+  auth: TokenSource;
+  signedIn: boolean;
+  onPick: (r: RepoRef) => Promise<string | null>;
+}) {
+  const [repos, setRepos] = useState<RepoRef[] | null>(null);
+  const [who, setWho] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const submit = async () => {
+  useEffect(() => {
+    if (!signedIn) return;
+    void (async () => {
+      try {
+        setWho((await viewer(auth)).login);
+        setRepos(await listRepos(auth));
+      } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    })();
+  }, [signedIn, auth]);
+
+  const pick = async (r: RepoRef) => {
     setBusy(true); setError(null);
-    setError(await onDone({ owner: owner.trim(), name: name.trim(), branch: branch.trim() || 'main', token: token.trim() }));
+    setError(await onPick(r));
     setBusy(false);
   };
 
+  if (!signedIn) {
+    return (
+      <div className="setup">
+        <h1>Knowledge Base</h1>
+        <p>Your vault is a git repository. Sign in and this device reads it directly — nothing sits in between, and no token to carry across from your laptop.</p>
+        <button className="primary" onClick={signIn}>Sign in with GitHub</button>
+        {error && <p className="error">{error}</p>}
+      </div>
+    );
+  }
+
   return (
     <div className="setup">
-      <h1>Knowledge Base</h1>
-      <p>Your vault is a git repository. This connects to it directly — nothing sits in between.</p>
-      <label>Owner<input value={owner} onChange={(e) => setOwner(e.target.value)} autoCapitalize="none" placeholder="your-github-username" /></label>
-      <label>Repository<input value={name} onChange={(e) => setName(e.target.value)} autoCapitalize="none" placeholder="knowledge-base" /></label>
-      <label>Branch<input value={branch} onChange={(e) => setBranch(e.target.value)} autoCapitalize="none" /></label>
-      <label>Token<input value={token} onChange={(e) => setToken(e.target.value)} type="password" autoCapitalize="none" placeholder="github_pat_…" /></label>
-      <p className="hint">
-        A fine-grained personal access token scoped to this one repository, with
-        Contents: read and write. It is stored on this device only. Anyone who
-        unlocks this phone can use it, so scope it to the vault and nothing else.
-      </p>
+      <h1>Choose your vault</h1>
+      <p>{who ? `Signed in as ${who}.` : 'Signed in.'} These are the repositories the app was given access to.</p>
       {error && <p className="error">{error}</p>}
-      <button className="primary" onClick={() => void submit()} disabled={busy || !owner || !name || !token}>
-        {busy ? 'Checking…' : 'Connect'}
-      </button>
+      {repos === null && !error && <p className="hint">Looking…</p>}
+      {repos?.length === 0 && (
+        <p className="hint">
+          The app is not installed on any repository yet. Install it on your vault
+          from GitHub, then come back and pull to refresh.
+        </p>
+      )}
+      {repos?.map((r) => (
+        <button key={`${r.owner}/${r.name}`} className="repo" disabled={busy} onClick={() => void pick(r)}>
+          <span className="repo-name">{r.owner}/{r.name}</span>
+          <span className="repo-branch">{r.branch}</span>
+        </button>
+      ))}
     </div>
   );
 }

@@ -7,17 +7,22 @@
  * see every byte of the vault. The REST API *does* send CORS headers, so this
  * talks to it directly and nothing sits in the middle.
  *
- * The cost is a fine-grained token living on the phone. That is the free tier's
- * own bargain (your repo, your key); the hosted tier replaces this file with a
- * server that holds the credential instead, which is why VaultSource is the seam.
+ * The credential is a GitHub App user token obtained by signing in, kept only on
+ * the device. Nothing here knows how it was minted — it asks for one per
+ * request, which is what lets it be refreshed underneath.
  */
 
-export interface Repo {
+/** Which repository. Deliberately carries no credential: the same reference is
+ *  meaningful in the UI, in storage, and in a log line. */
+export interface RepoRef {
   owner: string;
   name: string;
   branch: string;
-  token: string;
 }
+
+/** Asked for on every call, so an expiring token refreshes without callers
+ *  knowing it happened. */
+export type TokenSource = () => Promise<string>;
 
 /** A file as git sees it: a path and the hash of its content. */
 export interface Entry {
@@ -41,12 +46,12 @@ export class GitHubError extends Error {
   }
 }
 
-async function call<T>(repo: Repo, path: string, init?: RequestInit): Promise<T> {
+async function call<T>(auth: TokenSource, path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     ...init,
     headers: {
       Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${repo.token}`,
+      Authorization: `Bearer ${await auth()}`,
       'X-GitHub-Api-Version': '2022-11-28',
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       ...init?.headers,
@@ -61,6 +66,29 @@ async function call<T>(repo: Repo, path: string, init?: RequestInit): Promise<T>
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+/** Who is signed in, shown in the UI so it is never ambiguous which account a
+ *  device is acting as. */
+export const viewer = (auth: TokenSource) =>
+  call<{ login: string; avatar_url: string }>(auth, '/user');
+
+/**
+ * The repositories this App may touch.
+ *
+ * A GitHub App is installed on chosen repositories, so the owner has already
+ * said which vault this is. Asking them to type its name on every device is
+ * asking a question that has been answered.
+ */
+export async function listRepos(auth: TokenSource): Promise<RepoRef[]> {
+  const { installations } = await call<{ installations: { id: number }[] }>(auth, '/user/installations');
+  const perInstall = await Promise.all(installations.map((i) =>
+    call<{ repositories: { name: string; owner: { login: string }; default_branch: string }[] }>(
+      auth, `/user/installations/${i.id}/repositories?per_page=100`)));
+  return perInstall
+    .flatMap((r) => r.repositories)
+    .map((r) => ({ owner: r.owner.login, name: r.name, branch: r.default_branch }))
+    .sort((a, b) => `${a.owner}/${a.name}`.localeCompare(`${b.owner}/${b.name}`));
+}
+
 /**
  * Every path and content hash in the vault, in one request.
  *
@@ -70,11 +98,11 @@ async function call<T>(repo: Repo, path: string, init?: RequestInit): Promise<T>
  * request per folder, and fetching every file to find the changed ones would be
  * the whole vault every time.
  */
-export async function snapshot(repo: Repo): Promise<Snapshot> {
+export async function snapshot(auth: TokenSource, repo: RepoRef): Promise<Snapshot> {
   const branch = await call<{ commit: { sha: string } }>(
-    repo, `/repos/${repo.owner}/${repo.name}/branches/${encodeURIComponent(repo.branch)}`);
+    auth, `/repos/${repo.owner}/${repo.name}/branches/${encodeURIComponent(repo.branch)}`);
   const tree = await call<{ truncated: boolean; tree: { path: string; type: string; sha: string; size?: number }[] }>(
-    repo, `/repos/${repo.owner}/${repo.name}/git/trees/${branch.commit.sha}?recursive=1`);
+    auth, `/repos/${repo.owner}/${repo.name}/git/trees/${branch.commit.sha}?recursive=1`);
   if (tree.truncated) {
     // GitHub caps a recursive tree at 100k entries. Silently syncing a partial
     // vault would look like notes had been deleted, so refuse instead.
@@ -99,8 +127,8 @@ const encodeBase64 = (text: string) =>
 
 /** Blobs are addressed by hash, so this is safe to run concurrently and to cache
  *  forever — a given sha's content never changes. */
-export const readBlob = (repo: Repo, sha: string) =>
-  call<{ content: string }>(repo, `/repos/${repo.owner}/${repo.name}/git/blobs/${sha}`)
+export const readBlob = (auth: TokenSource, repo: RepoRef, sha: string) =>
+  call<{ content: string }>(auth, `/repos/${repo.owner}/${repo.name}/git/blobs/${sha}`)
     .then((b) => decodeBase64(b.content));
 
 /**
@@ -109,10 +137,10 @@ export const readBlob = (repo: Repo, sha: string) =>
  * silently overwriting an edit made on the desktop or by the enrichment job.
  */
 export async function putFile(
-  repo: Repo, path: string, content: string, sha: string | undefined, message: string,
+  auth: TokenSource, repo: RepoRef, path: string, content: string, sha: string | undefined, message: string,
 ): Promise<{ sha: string; commit: string }> {
   const res = await call<{ content: { sha: string }; commit: { sha: string } }>(
-    repo, `/repos/${repo.owner}/${repo.name}/contents/${path.split('/').map(encodeURIComponent).join('/')}`,
+    auth, `/repos/${repo.owner}/${repo.name}/contents/${path.split('/').map(encodeURIComponent).join('/')}`,
     {
       method: 'PUT',
       body: JSON.stringify({ message, content: encodeBase64(content), sha, branch: repo.branch }),
@@ -120,20 +148,19 @@ export async function putFile(
   return { sha: res.content.sha, commit: res.commit.sha };
 }
 
-/** Confirms the token works and the repo is writable, before anything is stored. */
-export async function checkAccess(repo: Repo): Promise<{ ok: true } | { ok: false; reason: string }> {
+/** Confirms the chosen repo is reachable and writable before anything is stored. */
+export async function checkAccess(auth: TokenSource, repo: RepoRef): Promise<{ ok: true } | { ok: false; reason: string }> {
   try {
-    const r = await call<{ permissions?: { push?: boolean } }>(
-      repo, `/repos/${repo.owner}/${repo.name}`);
+    const r = await call<{ permissions?: { push?: boolean } }>(auth, `/repos/${repo.owner}/${repo.name}`);
     if (r.permissions && !r.permissions.push) {
-      return { ok: false, reason: 'token can read this repo but not write to it' };
+      return { ok: false, reason: 'the app can read this repository but not write to it' };
     }
-    await call(repo, `/repos/${repo.owner}/${repo.name}/branches/${encodeURIComponent(repo.branch)}`);
+    await call(auth, `/repos/${repo.owner}/${repo.name}/branches/${encodeURIComponent(repo.branch)}`);
     return { ok: true };
   } catch (e) {
     const status = e instanceof GitHubError ? e.status : 0;
-    if (status === 401) return { ok: false, reason: 'token rejected' };
-    if (status === 404) return { ok: false, reason: 'repo or branch not found, or token lacks access to it' };
+    if (status === 401) return { ok: false, reason: 'sign-in expired' };
+    if (status === 404) return { ok: false, reason: 'repository or branch not found, or the app is not installed on it' };
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };
   }
 }

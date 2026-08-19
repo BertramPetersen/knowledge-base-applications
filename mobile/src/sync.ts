@@ -1,4 +1,4 @@
-import { snapshot, readBlob, putFile, GitHubError, type Repo } from './github.ts';
+import { snapshot, readBlob, putFile, GitHubError, type RepoRef, type TokenSource } from './github.ts';
 import { allFiles, getFile, putCached, removeFile, getMeta, setMeta } from './store.ts';
 
 export interface SyncResult {
@@ -32,14 +32,14 @@ async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>
  * write rejected because the file moved on is reported as a conflict and left
  * dirty rather than resolved by guessing.
  */
-async function push(repo: Repo): Promise<Pick<SyncResult, 'pushed' | 'conflicts'>> {
+async function push(auth: TokenSource, repo: RepoRef): Promise<Pick<SyncResult, 'pushed' | 'conflicts'>> {
   const dirty = (await allFiles()).filter((f) => f.dirty);
   const conflicts: string[] = [];
   let pushed = 0;
 
   for (const file of dirty) {
     try {
-      const { sha } = await putFile(repo, file.path, file.text, file.sha,
+      const { sha } = await putFile(auth, repo, file.path, file.text, file.sha,
         `mobile: ${file.path.split('/').pop()}`);
       await putCached({ path: file.path, sha, text: file.text });
       pushed++;
@@ -52,10 +52,10 @@ async function push(repo: Repo): Promise<Pick<SyncResult, 'pushed' | 'conflicts'
   return { pushed, conflicts };
 }
 
-export async function sync(repo: Repo): Promise<SyncResult> {
-  const { pushed, conflicts } = await push(repo);
+export async function sync(auth: TokenSource, repo: RepoRef): Promise<SyncResult> {
+  const { pushed, conflicts } = await push(auth, repo);
 
-  const remote = await snapshot(repo);
+  const remote = await snapshot(auth, repo);
   const local = new Map((await allFiles()).map((f) => [f.path, f]));
   const wanted = new Set(remote.entries.map((e) => e.path));
 
@@ -67,7 +67,7 @@ export async function sync(repo: Repo): Promise<SyncResult> {
   });
 
   await pool(stale, 6, async (e) => {
-    const text = await readBlob(repo, e.sha);
+    const text = await readBlob(auth, repo, e.sha);
     await putCached({ path: e.path, sha: e.sha, text });
   });
 
