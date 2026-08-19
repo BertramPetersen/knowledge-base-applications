@@ -3,10 +3,55 @@ import type { Note, NoteId } from './types.ts';
 const KNOWN = ['created', 'tags', 'enrichedAt', 'source', 'url', 'locator',
   'captureId', 'captureImage'] as const;
 
-/** First non-empty, non-quote line. Display only. */
+export const extractLinks = (text: string) =>
+  [...text.matchAll(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g)].map((l) => ({ to: l[1], alias: l[2] }));
+
+/**
+ * Markdown as a reader sees it. Titles and list previews are chrome, not prose:
+ * showing `# Lessons from building…` there leaks the syntax into a place that
+ * has no way to render it, so the marker is stripped rather than displayed.
+ */
+export function plainText(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^\s{0,3}(?:[-*_]\s*){3,}$/gm, ' ')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/gm, '')
+    .replace(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g,
+      (_, t: string, a: string) => a || t.slice(t.lastIndexOf('/') + 1).replace(/\.md$/, ''))
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/(\*|_)(.+?)\1/g, '$2')
+    .replace(/`([^`]+)`/g, '$1');
+}
+
+const clip = (s: string, limit: number) =>
+  s.length <= limit ? s : s.slice(0, limit - 1).replace(/\s+\S*$/, '') + '…';
+
+/**
+ * The note's first line of its own prose. A leading `>` is a quotation from the
+ * source, not the owner's words, so it is not the note's title — which means the
+ * marker has to be looked for before plainText strips it away.
+ */
+const titleLine = (body: string) =>
+  body.split('\n').findIndex((l) => l.trim() && !l.trimStart().startsWith('>'));
+
+/** First non-empty, non-quote line, as a reader would see it. Display only. */
 export function deriveTitle(body: string, limit = 80): string {
-  const first = body.split('\n').find((l) => l.trim() && !l.startsWith('>'))?.trim() ?? '';
-  return first.length <= limit ? first : first.slice(0, limit - 1).replace(/\s+\S*$/, '') + '…';
+  const i = titleLine(body);
+  return clip(i < 0 ? '' : plainText(body.split('\n')[i]).trim(), limit);
+}
+
+/**
+ * What the list row shows under the title: the note minus its title line —
+ * everything else, not everything after. A note that opens with a quotation
+ * takes its title from below it, and the quotation is still content.
+ */
+export function derivePreview(body: string, limit = 120): string {
+  const i = titleLine(body);
+  const rest = body.split('\n').filter((_, n) => n !== i).join('\n');
+  return clip(plainText(rest).replace(/\s+/g, ' ').trim(), limit);
 }
 
 export function parseNote(id: NoteId, raw: string): Note {
@@ -22,14 +67,13 @@ export function parseNote(id: NoteId, raw: string): Note {
   }
 
   const body = rest.replace(/\n##\s+Related\n[\s\S]*$/, '').trim();
-  const links = [...rest.matchAll(/\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g)]
-    .map((l) => ({ to: l[1], alias: l[2] }));
+  const links = extractLinks(rest);
 
   const extra: Record<string, string> = {};
   for (const [k, v] of Object.entries(fm)) if (!KNOWN.includes(k as any)) extra[k] = v;
 
   return {
-    id, body, title: deriveTitle(body),
+    id, body, title: deriveTitle(body), preview: derivePreview(body),
     tags: fm.tags ? fm.tags.replace(/^\[|\]$/g, '').split(',').map((s) => s.trim()).filter(Boolean) : [],
     created: fm.created, enrichedAt: fm.enrichedAt, source: fm.source, url: fm.url,
     locator: fm.locator, captureId: fm.captureId, captureImage: fm.captureImage,

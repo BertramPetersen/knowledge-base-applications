@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   loadVault, buildIndex, search, tagCounts, notesByTag, notesInFolder,
-  parseNote, serializeNote, moveNote, resolveLink, VaultGit, autoSync,
+  parseNote, serializeNote, moveNote, resolveLink, withBody, withNote, withoutNote,
+  VaultGit, autoSync,
   type Folder, type Note, type Vault, type SyncResult,
 } from '@kb/core';
 import { tauriVault, tauriGit } from './tauriVault.ts';
@@ -107,15 +108,29 @@ export default function App() {
   const openNote = (id: string) => { setSel({ kind: 'note', id }); setEditing(false); };
   const browse = (s: Scope) => { setScope(s); setQuery(''); if (sel?.kind === 'wiki') setSel(null); };
 
+  // Writes are chained rather than fired in parallel. Each one re-reads the file
+  // to preserve whatever the enrichment job put in the frontmatter, so two
+  // overlapping keystroke-writes could read the same `previous` and land out of
+  // order — the later text losing to the earlier one.
+  const writes = useRef<Promise<unknown>>(Promise.resolve());
+
   const onEdit = (text: string) => {
     setDraft(text);
-    if (!selected || !source) return;
-    void (async () => {
-      const previous = await source.read(selected.id);
-      const note = parseNote(selected.id, previous);
-      await source.write(selected.id, serializeNote({ ...note, body: text }, previous));
-      syncer?.touch();
-    })().catch((e) => setError(String(e)));
+    const note = selected;
+    if (!note || !source) return;
+    // The vault, not just the draft. `draft` is what the textarea shows; `vault`
+    // is what the list rows, the title and the note itself read from when you
+    // navigate away and back. Updating only the draft left those on the last
+    // value read from disk until the five-minute git poll reloaded the vault.
+    setVault((v) => (v ? withBody(v, note.id, text) : v));
+    writes.current = writes.current
+      .then(async () => {
+        const previous = await source.read(note.id);
+        const parsed = parseNote(note.id, previous);
+        await source.write(note.id, serializeNote({ ...parsed, body: text }, previous));
+        syncer?.touch();
+      })
+      .catch((e) => setError(String(e)));
   };
 
   const newNote = async () => {
@@ -125,9 +140,10 @@ export default function App() {
     // capture sync lands notes, so an unfiled note keeps company with the rest.
     const dir = scope.kind === 'folder' ? scope.path : 'raw';
     const id = `${dir ? `${dir}/` : ''}${today}-untitled-${Math.random().toString(36).slice(2, 10)}.md`;
-    await source.write(id, `---\ncreated: ${today}\n---\n\n`);
+    const raw = `---\ncreated: ${today}\n---\n\n`;
+    await source.write(id, raw);
     setPendingFolders((p) => p.filter((f) => f !== dir));
-    await reload();
+    setVault((v) => (v ? withNote(v, id, raw) : v));
     setSel({ kind: 'note', id });
     setDraft(''); setEditing(true); loadedId.current = id;
     syncer?.touch();
@@ -137,10 +153,11 @@ export default function App() {
     if (!source || !selected || dir === dirOf(selected.id)) return;
     const to = `${dir ? `${dir}/` : ''}${nameOf(selected.id)}`;
     try {
+      const raw = await source.read(selected.id);
       await moveNote(source, selected.id, to);
       loadedId.current = to;              // same content; do not reload the draft
       setPendingFolders((p) => p.filter((f) => f !== dir));
-      await reload();
+      setVault((v) => (v ? withNote(withoutNote(v, selected.id), to, raw) : v));
       setSel({ kind: 'note', id: to });
       syncer?.touch();
     } catch (e) { setError(String(e)); }
@@ -220,7 +237,7 @@ export default function App() {
           <button key={n.id} className="item" aria-selected={selected?.id === n.id}
                   onClick={() => openNote(n.id)}>
             <span className="title">{n.title || 'New note'}</span>
-            <span className="preview">{n.body.slice(0, 90) || 'No additional text'}</span>
+            <span className="preview">{n.preview || 'No additional text'}</span>
             <span className="meta">{n.created ?? ''}{n.tags.length ? ` · ${n.tags.join(', ')}` : ''}</span>
           </button>
         ))}

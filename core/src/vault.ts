@@ -1,5 +1,5 @@
 import type { Folder, Note, NoteId, Tag, Vault, VaultSource, Wiki } from './types.ts';
-import { parseNote } from './frontmatter.ts';
+import { parseNote, deriveTitle, derivePreview, extractLinks } from './frontmatter.ts';
 
 /**
  * `wikis/` is generated and `tags.md` is the vocabulary; both are machine-owned.
@@ -121,15 +121,50 @@ export async function loadVault(source: VaultSource): Promise<Vault> {
   // Backlinks are the half of the graph the notes do not store. A note knows
   // what it points at; knowing what points *back* is what makes "where did this
   // come up before" answerable.
+  return derive(notes, tags, wikis);
+}
+
+/**
+ * Everything in a Vault other than the notes is derived from them, so changing
+ * a note means rebuilding those three structures. It is O(n) over a corpus that
+ * is already in memory — cheap enough to do on a keystroke, which is what lets
+ * an edit show up everywhere at once instead of at the next reload.
+ */
+function derive(notes: Map<NoteId, Note>, tags: Map<string, Tag>, wikis: Map<string, Wiki>): Vault {
   const links = linkIndex(notes);
   const backlinks = new Map<NoteId, NoteId[]>();
   for (const note of notes.values())
     for (const l of note.links) {
-      const to = links.get(l.to) ?? links.get(l.to.replace(/\.md$/, ''));
+      const to = links.get(l.to) ?? links.get(l.to.replace(/\.md$/, '')) ?? links.get(l.to.slice(l.to.lastIndexOf('/') + 1).replace(/\.md$/, ''));
       if (to) backlinks.set(to, [...(backlinks.get(to) ?? []), note.id]);
     }
-
   return { notes, tags, wikis, backlinks, links, folders: folderTree(notes) };
+}
+
+/** The vault with one note's prose replaced — the editor's optimistic update. */
+export function withBody(v: Vault, id: NoteId, body: string): Vault {
+  const prev = v.notes.get(id);
+  if (!prev || prev.body === body) return v;
+  const notes = new Map(v.notes);
+  notes.set(id, {
+    ...prev, body,
+    title: deriveTitle(body), preview: derivePreview(body), links: extractLinks(body),
+  });
+  return derive(notes, v.tags, v.wikis);
+}
+
+/** The vault with a note added or replaced from its file text. */
+export function withNote(v: Vault, id: NoteId, raw: string): Vault {
+  const notes = new Map(v.notes);
+  notes.set(id, parseNote(id, raw));
+  return derive(notes, v.tags, v.wikis);
+}
+
+export function withoutNote(v: Vault, id: NoteId): Vault {
+  if (!v.notes.has(id)) return v;
+  const notes = new Map(v.notes);
+  notes.delete(id);
+  return derive(notes, v.tags, v.wikis);
 }
 
 /** Notes filed directly in `path` (`''` is the vault root), or anywhere beneath it. */

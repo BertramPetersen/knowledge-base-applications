@@ -6,8 +6,10 @@ export interface Note {
   id: NoteId;
   /** The prose, with any trailing `## Related` section removed. */
   body: string;
-  /** First line, truncated. Display only — nothing keys off it. */
+  /** First line, markdown stripped, truncated. Display only — nothing keys off it. */
   title: string;
+  /** The note after its title line, for list rows. Display only. */
+  preview: string;
   tags: string[];
   created?: string;
   enrichedAt?: string;
