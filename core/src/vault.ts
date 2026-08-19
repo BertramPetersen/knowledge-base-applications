@@ -11,8 +11,16 @@ import { parseNote, deriveTitle, derivePreview, extractLinks } from './frontmatt
  * controls is only useful if the app does not quietly claim names in it.
  */
 const RESERVED = new Set(['tags.md', 'README.md', 'AGENTS.md', 'CLAUDE.md']);
+/**
+ * Dotted directories are tooling, not content: `.agents/` holds the skill files,
+ * `.obsidian/` the editor's config. The desktop never saw them because the Rust
+ * walker skips dot-entries, so this lived on one platform only — and the mobile
+ * client, reading the same vault through a git tree, listed four skill documents
+ * as notes. The rule belongs to the vault, not to whichever way it was read.
+ */
 const isNote = (p: string) =>
-  p.endsWith('.md') && !p.startsWith('wikis/') && !RESERVED.has(p);
+  p.endsWith('.md') && !p.startsWith('wikis/') && !RESERVED.has(p)
+  && !p.split('/').some((seg) => seg.startsWith('.'));
 
 const basename = (p: string) => p.slice(p.lastIndexOf('/') + 1).replace(/\.md$/, '');
 

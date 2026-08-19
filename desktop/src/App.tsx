@@ -7,7 +7,7 @@ import {
   type Folder, type Note, type Vault, type SyncResult,
 } from '@kb/core';
 import { tauriVault, tauriGit } from './tauriVault.ts';
-import { Markdown } from './Markdown.tsx';
+import { Markdown } from '@kb/core/react';
 import { FolderTree } from './FolderTree.tsx';
 
 /**

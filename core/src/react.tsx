@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react';
-import { parseMarkdown, linkLabel, type Block, type Inline } from '@kb/core';
+import { parseMarkdown, type Block, type Inline } from './markdown.ts';
+import { linkLabel } from './vault.ts';
 
 type Ctx = {
   onOpen: (id: string) => void;

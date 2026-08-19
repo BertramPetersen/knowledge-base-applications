@@ -12,7 +12,14 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  core: {}
+  core:
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
 
   desktop:
     dependencies:
@@ -32,6 +39,34 @@ importers:
       '@tauri-apps/cli':
         specifier: ^2
         version: 2.11.4
+      '@types/react':
+        specifier: ^19
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19
+        version: 19.2.4(@types/react@19.2.18)
+      '@vitejs/plugin-react':
+        specifier: ^5
+        version: 5.2.0(vite@7.3.6)
+      typescript:
+        specifier: ^5.9
+        version: 5.9.3
+      vite:
+        specifier: ^7
+        version: 7.3.6
+
+  mobile:
+    dependencies:
+      '@kb/core':
+        specifier: workspace:*
+        version: link:../core
+      react:
+        specifier: ^19.2.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.2.0
+        version: 19.2.8(react@19.2.8)
+    devDependencies:
       '@types/react':
         specifier: ^19
         version: 19.2.18
