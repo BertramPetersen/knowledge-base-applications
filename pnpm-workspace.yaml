@@ -3,15 +3,17 @@ packages:
   - desktop
   - mobile
 
+# esbuild runs a postinstall to place its native binary. pnpm blocks build
+# scripts unless a package is named here, and since pnpm 11 an unapproved one is
+# an install *error*, not a warning — which is why a clean CI checkout failed
+# where the incrementally-grown local one did not.
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
 
-# esbuild fetches its native binary in a postinstall; pnpm blocks build scripts
-# by default, so it must be allowed explicitly or vite cannot build.
 onlyBuiltDependencies:
   - esbuild
 
-# The esbuild binary ships as an optional dep and needs no postinstall, so the
-# ignored-build warning is harmless — but it makes pnpm's pre-run check fail and
-# block every script. Skip the check rather than the build.
+# The esbuild binary also ships as an optional dep, so pnpm's pre-run dependency
+# check can consider the tree incomplete and refuse to run any script. Skip the
+# check rather than the build.
 verifyDepsBeforeRun: false

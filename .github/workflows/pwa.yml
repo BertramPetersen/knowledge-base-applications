@@ -1,0 +1,52 @@
+name: Deploy PWA
+
+on:
+  push:
+    branches: [main]
+    # The desktop app and core's non-UI code cannot change what this publishes,
+    # and a Tauri build is not worth running to find that out.
+    paths: ['mobile/**', 'core/**', 'pnpm-lock.yaml', '.github/workflows/pwa.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A half-published site is worse than an old one, so a run in flight is allowed
+# to finish rather than being cancelled by the next push.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # enablement turns Pages on using the workflow's own token, so nobody has
+      # to hold repo-admin to set this up. It only works on a public repo (or a
+      # paid plan) — Pages is not offered for private repos on the free tier.
+      - uses: actions/configure-pages@v5
+        with: { enablement: true }
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # Typecheck covers core as well, because mobile's tsconfig includes it —
+      # so a change that breaks the desktop is caught here too.
+      - run: pnpm exec tsc --noEmit -p mobile/tsconfig.json
+      - run: pnpm --filter @kb/mobile build
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: mobile/dist }
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
