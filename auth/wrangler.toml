@@ -11,7 +11,7 @@ id = "b244d1d7245044ea8768f8418726b3ea"
 [vars]
 # Public by design — the client id is not a secret. Filled in once the GitHub App
 # is registered.
-GITHUB_CLIENT_ID = ""
+GITHUB_CLIENT_ID = "Iv23livU8NRTNINA3g4j"
 ALLOWED_ORIGINS = "https://knowledge-base.tilbertrampetersen.workers.dev,http://localhost:4173,http://localhost:1421"
 
 # GITHUB_CLIENT_SECRET is set with `wrangler secret put GITHUB_CLIENT_SECRET`
