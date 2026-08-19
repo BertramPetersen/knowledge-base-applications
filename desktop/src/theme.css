@@ -116,3 +116,64 @@ body {
   font: inherit; font-size: 1.125rem; line-height: 1; padding: 4px 8px; border-radius: 7px;
 }
 .new:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+
+/* ── reading ─────────────────────────────────────────────────────────────── */
+.scroll { flex: 1; overflow-y: auto; padding: 8px 24px 32px; }
+
+.prose { font-family: var(--serif); font-size: 1.0625rem; line-height: 1.65; max-width: 68ch; }
+.prose p { margin: 0 0 0.9em; }
+.prose h2, .prose h3, .prose h4 {
+  font-family: var(--sans); line-height: 1.25; margin: 1.4em 0 0.5em;
+}
+.prose h2 { font-size: 1.25rem; }
+.prose h3 { font-size: 1.0625rem; }
+.prose h4 { font-size: 0.9375rem; color: var(--ink-muted); }
+.prose ul, .prose ol { margin: 0 0 0.9em; padding-left: 1.3em; }
+.prose li { margin: 0.25em 0; }
+.prose blockquote {
+  margin: 0 0 0.9em; padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--line); color: var(--ink-muted);
+}
+.prose code {
+  font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.875em;
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+  padding: 0.1em 0.35em; border-radius: 5px;
+}
+.prose pre {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  padding: 12px 14px; border-radius: var(--radius); overflow-x: auto;
+}
+.prose pre code { background: none; padding: 0; }
+.prose hr { border: 0; border-top: 1px solid var(--line); margin: 1.6em 0; }
+.prose a { color: var(--focus); }
+
+/* Wikilinks are the vault's structure, so they read as links but behave as
+   navigation. A broken one is shown rather than hidden — silently swallowing a
+   dead link is how a graph rots unnoticed. */
+.wikilink {
+  border: 0; background: none; padding: 0; font: inherit; cursor: pointer;
+  color: var(--focus); border-bottom: 1px solid color-mix(in srgb, var(--focus) 40%, transparent);
+}
+.wikilink[data-broken='true'] {
+  color: var(--danger); border-bottom-style: dotted; cursor: not-allowed;
+}
+
+.backlinks { margin-top: 2.5em; border-top: 1px solid var(--line); padding-top: 1em; }
+.backlinks h3 {
+  font-family: var(--sans); font-size: 0.6875rem; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--ink-muted); margin: 0 0 0.6em; font-weight: 600;
+}
+.backlink {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  cursor: pointer; font-family: var(--sans); font-size: 0.8125rem; color: var(--ink);
+  padding: 5px 8px; margin-left: -8px; border-radius: 7px;
+}
+.backlink:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+
+.grow { flex: 1; }
+.toggle {
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  font: inherit; font-size: 0.75rem; padding: 3px 12px; border-radius: 999px; cursor: pointer;
+}
+.toggle:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.wiki-title { font-weight: 600; color: var(--ink); font-size: 0.875rem; }
