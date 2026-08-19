@@ -1,0 +1,8 @@
+{
+  "name": "kb-app",
+  "private": true,
+  "type": "module",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

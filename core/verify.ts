@@ -1,6 +1,6 @@
 // Verify core against the real vault. No UI, no Tauri — if this is wrong the
 // app is wrong, so it is worth proving before any of that exists.
-import { fsSource } from './src/fsSource.ts';
+import { fsSource } from './node/fsSource.ts';
 import { loadVault, notesByTag, tagCounts, brokenLinks, pending } from './src/vault.ts';
 import { buildIndex, search } from './src/search.ts';
 import { parseNote, serializeNote } from './src/frontmatter.ts';

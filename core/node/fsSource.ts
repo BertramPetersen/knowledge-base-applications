@@ -2,7 +2,7 @@
 // backed by whatever the delta sync left in IndexedDB.
 import { readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import type { VaultSource } from './types.ts';
+import type { VaultSource } from '../src/types.ts';
 
 export function fsSource(root: string): VaultSource {
   const walk = async (dir: string): Promise<string[]> =>

@@ -1,0 +1,1 @@
+{ "name": "@kb/core-node", "type": "module", "main": "./fsSource.ts" }
