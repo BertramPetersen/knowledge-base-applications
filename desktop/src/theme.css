@@ -177,3 +177,19 @@ body {
 }
 .toggle:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
 .wiki-title { font-weight: 600; color: var(--ink); font-size: 0.875rem; }
+
+/* ── window chrome ───────────────────────────────────────────────────────── */
+/* With hiddenTitle the content reaches the top of the window, so this strip is
+   the only thing the user can grab to move it. It sits above the panes but
+   stops short of the first control in each column. */
+.titlebar {
+  position: fixed; top: 0; left: 0; right: 0; height: 36px;
+  z-index: 10; -webkit-app-region: drag;
+}
+
+/* Dragging anywhere over the chrome should move the window, not select labels.
+   Prose, inputs and the editor stay selectable — that text is the point. */
+.sidebar, .list, .editor-bar, .item, .tag, .backlinks, .status {
+  -webkit-user-select: none; user-select: none;
+}
+.prose, .body, .search, .item .preview { -webkit-user-select: text; user-select: text; }

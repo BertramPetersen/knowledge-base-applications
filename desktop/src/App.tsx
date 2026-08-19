@@ -114,6 +114,9 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* The window has no title bar (hiddenTitle + Overlay), so it needs an
+          explicit surface to drag by. Without it, dragging selects text. */}
+      <div className="titlebar" data-tauri-drag-region />
       <nav className="pane sidebar">
         <button className="new" onClick={() => void newNote()} title="New note">＋</button>
         <h2>Library</h2>
