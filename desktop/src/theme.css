@@ -181,10 +181,16 @@ body {
 /* ── window chrome ───────────────────────────────────────────────────────── */
 /* With hiddenTitle the content reaches the top of the window, so this strip is
    the only thing the user can grab to move it. It sits above the panes but
-   stops short of the first control in each column. */
+   stops short of the first control in each column.
+
+   Exactly ONE drag mechanism, and it is `data-tauri-drag-region` in the markup.
+   Adding `-webkit-app-region: drag` here as well makes the window draggable
+   precisely once: Tauri's handler calls performWindowDragWithEvent:, whose modal
+   tracking loop eats the mouseup, while WebKit has independently opened a second
+   drag session from the same mousedown. The two never unwind, and every
+   subsequent drag is a no-op. */
 .titlebar {
-  position: fixed; top: 0; left: 0; right: 0; height: 36px;
-  z-index: 10; -webkit-app-region: drag;
+  position: fixed; top: 0; left: 0; right: 0; height: 36px; z-index: 10;
 }
 
 /* Dragging anywhere over the chrome should move the window, not select labels.
