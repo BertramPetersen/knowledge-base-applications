@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Commands the frontend is allowed to call. Commands defined by this app (list_notes, run_git, and the rest) are not governed here; only Tauri's own plugin commands are, and they are denied unless named.",
+  "windows": ["*"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

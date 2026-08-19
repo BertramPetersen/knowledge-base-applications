@@ -189,12 +189,15 @@ body {
    the only thing the user can grab to move it. It sits above the panes but
    stops short of the first control in each column.
 
-   Exactly ONE drag mechanism, and it is `data-tauri-drag-region` in the markup.
-   Adding `-webkit-app-region: drag` here as well makes the window draggable
-   precisely once: Tauri's handler calls performWindowDragWithEvent:, whose modal
-   tracking loop eats the mouseup, while WebKit has independently opened a second
-   drag session from the same mousedown. The two never unwind, and every
-   subsequent drag is a no-op. */
+   The drag itself is `data-tauri-drag-region` in the markup, and it only works
+   because capabilities/default.json grants core:window:allow-start-dragging —
+   with no capability file at all, Tauri denies every core plugin command while
+   this app's own commands keep working, so the window silently refuses to move
+   and nothing anywhere reports why.
+
+   Deliberately no `-webkit-app-region: drag` here. WebKit will move the window
+   on its own from that property, but it does it once and then leaves the drag
+   session open, so every later drag is a no-op. */
 .titlebar {
   position: fixed; top: 0; left: 0; right: 0; height: 36px; z-index: 10;
 }
