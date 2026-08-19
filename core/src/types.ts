@@ -35,12 +35,25 @@ export interface Wiki {
   refreshedAt?: string;
 }
 
+/** A node in the user's own organisation. Derived from note paths, stored nowhere. */
+export interface Folder {
+  name: string;
+  /** Vault-relative, `''` for the root. */
+  path: string;
+  children: Folder[];
+  /** Notes at or below this node. */
+  count: number;
+}
+
 export interface Vault {
   notes: Map<NoteId, Note>;
   tags: Map<string, Tag>;
   wikis: Map<string, Wiki>;
   /** Reverse link graph: note id -> ids of notes linking to it. */
   backlinks: Map<NoteId, NoteId[]>;
+  /** Every way a note can be named -> its id. `null` where a name is ambiguous. */
+  links: Map<string, NoteId | null>;
+  folders: Folder;
 }
 
 /**

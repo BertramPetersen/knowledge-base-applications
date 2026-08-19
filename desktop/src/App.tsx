@@ -1,29 +1,50 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
-  loadVault, buildIndex, search, tagCounts, notesByTag,
-  parseNote, serializeNote, VaultGit, autoSync,
-  type Note, type Vault, type SyncResult,
+  loadVault, buildIndex, search, tagCounts, notesByTag, notesInFolder,
+  parseNote, serializeNote, moveNote, resolveLink, VaultGit, autoSync,
+  type Folder, type Note, type Vault, type SyncResult,
 } from '@kb/core';
 import { tauriVault, tauriGit } from './tauriVault.ts';
 import { Markdown } from './Markdown.tsx';
+import { FolderTree } from './FolderTree.tsx';
 
-const ALL = '__all__';
-type Selection =
-  | { kind: 'note'; id: string }
-  | { kind: 'wiki'; tag: string }
-  | null;
+/**
+ * What the note list is currently showing. Folders are the user's organisation
+ * and tags are the machine's; they answer different questions ("where did I put
+ * it" versus "what else touches this"), so they are peers here rather than one
+ * being built out of the other.
+ */
+type Scope =
+  | { kind: 'all' }
+  | { kind: 'tag'; name: string }
+  | { kind: 'folder'; path: string };
+
+type Selection = { kind: 'note'; id: string } | { kind: 'wiki'; tag: string } | null;
+
+const dirOf = (id: string) => id.slice(0, Math.max(0, id.lastIndexOf('/')));
+const nameOf = (id: string) => id.slice(id.lastIndexOf('/') + 1);
+
+const flatten = (f: Folder, out: string[] = []): string[] => {
+  for (const c of f.children) { out.push(c.path); flatten(c, out); }
+  return out;
+};
 
 export default function App() {
   const [vaultPath, setVaultPath] = useState<string | null>(() => localStorage.getItem('vault'));
   const [vault, setVault] = useState<Vault | null>(null);
-  const [selectedTag, setSelectedTag] = useState(ALL);
+  const [scope, setScope] = useState<Scope>({ kind: 'all' });
   const [sel, setSel] = useState<Selection>(null);
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState(false);
   const [status, setStatus] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Folders live in the note paths, so one with nothing in it has nowhere to be
+  // stored. Holding it here lets the user make a folder, then a note, in that
+  // order — it becomes real on the first write.
+  const [pendingFolders, setPendingFolders] = useState<string[]>([]);
+  const [newFolder, setNewFolder] = useState<string | null>(null);
 
   useEffect(() => {
     if (!vaultPath) void invoke<string>('default_vault').then(setVaultPath).catch((e) => setError(String(e)));
@@ -62,13 +83,14 @@ export default function App() {
   const index = useMemo(() => (vault ? buildIndex(vault) : null), [vault]);
   const counts = useMemo(() => (vault ? tagCounts(vault) : new Map<string, number>()), [vault]);
 
-  const listTag = sel?.kind === 'wiki' ? sel.tag : selectedTag;
   const notes: Note[] = useMemo(() => {
     if (!vault) return [];
     if (query.trim() && index) return search(vault, index, query, 50).map((h) => h.note);
-    const list = listTag === ALL ? [...vault.notes.values()] : notesByTag(vault, listTag);
+    if (sel?.kind === 'wiki') return notesByTag(vault, sel.tag);
+    if (scope.kind === 'folder') return notesInFolder(vault, scope.path);
+    const list = scope.kind === 'tag' ? notesByTag(vault, scope.name) : [...vault.notes.values()];
     return [...list].sort((a, b) => (b.created ?? '').localeCompare(a.created ?? ''));
-  }, [vault, index, query, listTag]);
+  }, [vault, index, query, scope, sel]);
 
   const selected = sel?.kind === 'note' ? vault?.notes.get(sel.id) ?? null : null;
   const wiki = sel?.kind === 'wiki' ? vault?.wikis.get(sel.tag) ?? null : null;
@@ -83,6 +105,7 @@ export default function App() {
   }, [selected]);
 
   const openNote = (id: string) => { setSel({ kind: 'note', id }); setEditing(false); };
+  const browse = (s: Scope) => { setScope(s); setQuery(''); if (sel?.kind === 'wiki') setSel(null); };
 
   const onEdit = (text: string) => {
     setDraft(text);
@@ -98,11 +121,38 @@ export default function App() {
   const newNote = async () => {
     if (!source) return;
     const today = new Date().toISOString().slice(0, 10);
-    const id = `raw/${today}-untitled-${Math.random().toString(36).slice(2, 10)}.md`;
+    // `raw/` is the default drawer rather than a requirement: it is where the
+    // capture sync lands notes, so an unfiled note keeps company with the rest.
+    const dir = scope.kind === 'folder' ? scope.path : 'raw';
+    const id = `${dir ? `${dir}/` : ''}${today}-untitled-${Math.random().toString(36).slice(2, 10)}.md`;
     await source.write(id, `---\ncreated: ${today}\n---\n\n`);
+    setPendingFolders((p) => p.filter((f) => f !== dir));
     await reload();
     setSel({ kind: 'note', id });
     setDraft(''); setEditing(true); loadedId.current = id;
+    syncer?.touch();
+  };
+
+  const moveTo = async (dir: string) => {
+    if (!source || !selected || dir === dirOf(selected.id)) return;
+    const to = `${dir ? `${dir}/` : ''}${nameOf(selected.id)}`;
+    try {
+      await moveNote(source, selected.id, to);
+      loadedId.current = to;              // same content; do not reload the draft
+      setPendingFolders((p) => p.filter((f) => f !== dir));
+      await reload();
+      setSel({ kind: 'note', id: to });
+      syncer?.touch();
+    } catch (e) { setError(String(e)); }
+  };
+
+  const createFolder = (name: string) => {
+    const parent = scope.kind === 'folder' ? scope.path : '';
+    const path = `${parent ? `${parent}/` : ''}${name.trim().replace(/^\/+|\/+$/g, '')}`;
+    setNewFolder(null);
+    if (!name.trim()) return;
+    setPendingFolders((p) => (p.includes(path) ? p : [...p, path]));
+    browse({ kind: 'folder', path });
   };
 
   if (!vault) return <div className="empty">{error ?? 'Opening vault…'}</div>;
@@ -110,7 +160,8 @@ export default function App() {
   const topics = [...vault.tags.values()].filter((t) => t.kind === 'topic');
   const wikis = [...vault.wikis.values()].sort((a, b) => a.tag.localeCompare(b.tag));
   const backlinks = selected ? vault.backlinks.get(selected.id) ?? [] : [];
-  const noteExists = (id: string) => vault.notes.has(id);
+  const allFolders = [...new Set([...flatten(vault.folders), ...pendingFolders])].sort();
+  const resolve = (target: string) => resolveLink(vault, target);
 
   return (
     <div className="app">
@@ -120,10 +171,27 @@ export default function App() {
       <nav className="pane sidebar">
         <button className="new" onClick={() => void newNote()} title="New note">＋</button>
         <h2>Library</h2>
-        <button className="tag" aria-selected={selectedTag === ALL && sel?.kind !== 'wiki'}
-                onClick={() => { setSelectedTag(ALL); setQuery(''); if (sel?.kind === 'wiki') setSel(null); }}>
+        <button className="tag" aria-selected={scope.kind === 'all' && sel?.kind !== 'wiki'}
+                onClick={() => browse({ kind: 'all' })}>
           <span>All Notes</span><span className="count">{vault.notes.size}</span>
         </button>
+
+        <h2>
+          Folders
+          <button className="add" title="New folder" onClick={() => setNewFolder('')}>＋</button>
+        </h2>
+        <FolderTree root={vault.folders} pending={pendingFolders}
+                    selected={scope.kind === 'folder' && sel?.kind !== 'wiki' ? scope.path : null}
+                    onSelect={(path) => browse({ kind: 'folder', path })} />
+        {newFolder !== null && (
+          <input className="search folder-input" autoFocus placeholder="Folder name"
+                 value={newFolder} onChange={(e) => setNewFolder(e.target.value)}
+                 onBlur={() => createFolder(newFolder)}
+                 onKeyDown={(e) => {
+                   if (e.key === 'Enter') createFolder(newFolder);
+                   if (e.key === 'Escape') setNewFolder(null);
+                 }} />
+        )}
 
         {wikis.length > 0 && <h2>Wikis</h2>}
         {wikis.map((w) => (
@@ -136,8 +204,8 @@ export default function App() {
         <h2>Topics</h2>
         {topics.map((t) => (
           <button key={t.name} className="tag" title={t.description}
-                  aria-selected={sel?.kind !== 'wiki' && selectedTag === t.name}
-                  onClick={() => { setSelectedTag(t.name); setQuery(''); if (sel?.kind === 'wiki') setSel(null); }}>
+                  aria-selected={sel?.kind !== 'wiki' && scope.kind === 'tag' && scope.name === t.name}
+                  onClick={() => browse({ kind: 'tag', name: t.name })}>
             <span>{t.name}</span><span className="count">{counts.get(t.name) ?? 0}</span>
           </button>
         ))}
@@ -172,12 +240,18 @@ export default function App() {
               </span>
             </div>
             <div className="scroll">
-              <Markdown source={wiki.overview} onOpen={openNote} exists={noteExists} />
+              <Markdown source={wiki.overview} onOpen={openNote} resolve={resolve} />
             </div>
           </>
         ) : selected ? (
           <>
             <div className="editor-bar">
+              <select className="move" value={dirOf(selected.id)}
+                      title="Move to folder"
+                      onChange={(e) => void moveTo(e.target.value)}>
+                <option value="">(vault root)</option>
+                {allFolders.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
               {selected.source && <span>{selected.source}</span>}
               {selected.locator && <span className="chip">{selected.locator}</span>}
               {selected.tags.map((t) => <span key={t} className="chip">{t}</span>)}
@@ -193,7 +267,7 @@ export default function App() {
                         placeholder="Write what you want to remember…" />
             ) : (
               <div className="scroll" onDoubleClick={() => setEditing(true)}>
-                <Markdown source={draft} onOpen={openNote} exists={noteExists} />
+                <Markdown source={draft} onOpen={openNote} resolve={resolve} />
                 {backlinks.length > 0 && (
                   <section className="backlinks">
                     <h3>Linked from</h3>

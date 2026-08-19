@@ -51,9 +51,15 @@ body {
 /* Sidebar sits under the traffic lights, so it needs the inset. */
 .sidebar { background: transparent; padding: 40px 8px 12px; }
 .sidebar h2 {
+  display: flex; align-items: center; justify-content: space-between;
   font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--ink-muted); margin: 14px 8px 6px; font-weight: 600;
 }
+.sidebar h2 .add {
+  border: 0; background: none; cursor: pointer; color: var(--ink-muted);
+  font: inherit; font-size: 0.8125rem; line-height: 1; padding: 0 2px;
+}
+.sidebar h2 .add:hover { color: var(--ink); }
 .tag {
   display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
   width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
@@ -199,3 +205,24 @@ body {
   -webkit-user-select: none; user-select: none;
 }
 .prose, .body, .search, .item .preview { -webkit-user-select: text; user-select: text; }
+
+/* ── folders ─────────────────────────────────────────────────────────────── */
+/* Folders are the user's own filing; tags are the machine's. Both live in the
+   sidebar as peers, because they answer different questions and neither is
+   derived from the other. */
+.row { display: flex; align-items: center; gap: 2px; }
+.row .tag { flex: 1; min-width: 0; }
+.row .tag span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.twisty {
+  border: 0; background: none; cursor: pointer; color: var(--ink-muted);
+  font-size: 0.625rem; line-height: 1; padding: 0; width: 12px; flex: none;
+}
+.folder-input { margin: 4px 8px; width: calc(100% - 16px); }
+
+/* The note's folder, editable in place. A move rewrites no links — they resolve
+   by name — so this is safe to do casually. */
+.move {
+  font: inherit; font-size: 0.6875rem; color: var(--ink-muted);
+  background: var(--paper); border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 6px; max-width: 200px;
+}

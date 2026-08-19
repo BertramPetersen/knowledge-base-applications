@@ -15,7 +15,9 @@ export type Inline =
   | { t: 'em'; v: Inline[] }
   | { t: 'code'; v: string }
   | { t: 'link'; v: string; href: string }
-  | { t: 'wikilink'; target: string; label: string };
+  /** `label` is absent when the author wrote no alias — the renderer decides how
+ *  a bare target should read, since a path is a poor thing to show a reader. */
+  | { t: 'wikilink'; target: string; label?: string };
 
 export type Block =
   | { t: 'h'; level: number; v: Inline[] }
@@ -36,7 +38,7 @@ export function parseInline(src: string): Inline[] {
     const wiki = /^\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/.exec(rest);
     if (wiki) {
       flush();
-      out.push({ t: 'wikilink', target: wiki[1], label: wiki[2] || wiki[1] });
+      out.push({ t: 'wikilink', target: wiki[1], label: wiki[2] || undefined });
       i += wiki[0].length; continue;
     }
     const link = /^\[([^\]]+)\]\(([^)\s]+)\)/.exec(rest);
