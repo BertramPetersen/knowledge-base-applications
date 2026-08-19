@@ -1,0 +1,12 @@
+# Deployed as a Worker with static assets rather than through Pages: the
+# machine's Cloudflare token carries workers_scripts:write but no pages scope,
+# and Workers-with-assets is Cloudflare's current path for static sites anyway.
+name = "knowledge-base"
+compatibility_date = "2026-08-01"
+
+[assets]
+directory = "./dist"
+# Every route is the same page; the app decides what to show. Real files —
+# sw.js, the manifest, the hashed bundles — are served as themselves, so this
+# only catches navigations.
+not_found_handling = "single-page-application"

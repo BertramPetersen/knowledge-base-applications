@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # mobile's tsconfig includes ../core/src, so this typechecks the shared
+      # model too — a change that would break the desktop is caught here.
+      - run: pnpm exec tsc --noEmit -p mobile/tsconfig.json
+      - run: pnpm exec tsc --noEmit -p desktop/tsconfig.json
+      - run: pnpm --filter @kb/mobile build
+
+# Deployment is not here on purpose. Publishing to Cloudflare needs a
+# CLOUDFLARE_API_TOKEN repository secret, and adding one requires repo admin.
+# Until that exists, the PWA ships with `pnpm --filter @kb/mobile exec wrangler deploy`.
