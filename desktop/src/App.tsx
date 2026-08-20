@@ -9,6 +9,7 @@ import {
 import { tauriVault, tauriGit } from './tauriVault.ts';
 import { Markdown } from '@kb/core/react';
 import { FolderTree } from './FolderTree.tsx';
+import { Section } from './Section.tsx';
 
 /**
  * What the note list is currently showing. Folders are the user's organisation
@@ -214,22 +215,21 @@ export default function App() {
           <span>All Notes</span><span className="count">{vault.notes.size}</span>
         </button>
 
-        <h2>
-          Folders
-          <button className="add" title="New folder" onClick={() => setNewFolder('')}>＋</button>
-        </h2>
-        <FolderTree root={vault.folders} pending={pendingFolders}
-                    selected={scope.kind === 'folder' && sel?.kind !== 'wiki' ? scope.path : null}
-                    onSelect={(path) => browse({ kind: 'folder', path })} />
-        {newFolder !== null && (
-          <input className="search folder-input" autoFocus placeholder="Folder name"
-                 value={newFolder} onChange={(e) => setNewFolder(e.target.value)}
-                 onBlur={() => createFolder(newFolder)}
-                 onKeyDown={(e) => {
-                   if (e.key === 'Enter') createFolder(newFolder);
-                   if (e.key === 'Escape') setNewFolder(null);
-                 }} />
-        )}
+        <Section title="Folders" count={vault.folders.children.length} storageKey="sec.folders"
+                 action={<button className="add" title="New folder" onClick={() => setNewFolder('')}>＋</button>}>
+          <FolderTree root={vault.folders} pending={pendingFolders}
+                      selected={scope.kind === 'folder' && sel?.kind !== 'wiki' ? scope.path : null}
+                      onSelect={(path) => browse({ kind: 'folder', path })} />
+          {newFolder !== null && (
+            <input className="search folder-input" autoFocus placeholder="Folder name"
+                   value={newFolder} onChange={(e) => setNewFolder(e.target.value)}
+                   onBlur={() => createFolder(newFolder)}
+                   onKeyDown={(e) => {
+                     if (e.key === 'Enter') createFolder(newFolder);
+                     if (e.key === 'Escape') setNewFolder(null);
+                   }} />
+          )}
+        </Section>
 
         <button className="tag" aria-selected={scope.kind === 'activity' && sel?.kind !== 'wiki'}
                 onClick={openActivity}
@@ -240,22 +240,26 @@ export default function App() {
             : <span className="count">{changes.length}</span>}
         </button>
 
-        {wikis.length > 0 && <h2>Wikis</h2>}
-        {wikis.map((w) => (
-          <button key={w.tag} className="tag" aria-selected={sel?.kind === 'wiki' && sel.tag === w.tag}
-                  onClick={() => { setSel({ kind: 'wiki', tag: w.tag }); setQuery(''); }}>
-            <span>{w.tag}</span><span className="count">{w.sourceCount ?? counts.get(w.tag) ?? 0}</span>
-          </button>
-        ))}
+        {wikis.length > 0 && (
+          <Section title="Wikis" count={wikis.length} storageKey="sec.wikis">
+            {wikis.map((w) => (
+              <button key={w.tag} className="tag" aria-selected={sel?.kind === 'wiki' && sel.tag === w.tag}
+                      onClick={() => { setSel({ kind: 'wiki', tag: w.tag }); setQuery(''); }}>
+                <span>{w.tag}</span><span className="count">{w.sourceCount ?? counts.get(w.tag) ?? 0}</span>
+              </button>
+            ))}
+          </Section>
+        )}
 
-        <h2>Topics</h2>
-        {topics.map((t) => (
-          <button key={t.name} className="tag" title={t.description}
-                  aria-selected={sel?.kind !== 'wiki' && scope.kind === 'tag' && scope.name === t.name}
-                  onClick={() => browse({ kind: 'tag', name: t.name })}>
-            <span>{t.name}</span><span className="count">{counts.get(t.name) ?? 0}</span>
-          </button>
-        ))}
+        <Section title="Topics" count={topics.length} storageKey="sec.topics">
+          {topics.map((t) => (
+            <button key={t.name} className="tag" title={t.description}
+                    aria-selected={sel?.kind !== 'wiki' && scope.kind === 'tag' && scope.name === t.name}
+                    onClick={() => browse({ kind: 'tag', name: t.name })}>
+              <span>{t.name}</span><span className="count">{counts.get(t.name) ?? 0}</span>
+            </button>
+          ))}
+        </Section>
       </nav>
 
       <section className="pane list">

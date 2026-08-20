@@ -251,3 +251,18 @@ body {
   content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 3px;
   background: var(--accent); margin-left: 6px; vertical-align: middle;
 }
+
+/* ── collapsible sidebar sections ────────────────────────────────────────── */
+/* The whole header is the hit target, not just the triangle: a 7px glyph is a
+   thing you aim at, and this is something you toggle constantly. */
+h2.section { margin: 14px 2px 6px; }
+.section-toggle {
+  display: flex; align-items: center; gap: 4px; flex: 1;
+  border: 0; background: none; cursor: pointer; padding: 2px 6px;
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+  border-radius: 6px;
+}
+.section-toggle:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.section-twisty { font-size: 0.5625rem; width: 9px; opacity: 0.7; }
+/* Shown only while collapsed, so the section still says how much it is hiding. */
+.section-count { margin-left: auto; opacity: 0.55; font-variant-numeric: tabular-nums; }
