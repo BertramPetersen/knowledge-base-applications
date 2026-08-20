@@ -35,6 +35,10 @@ export interface Wiki {
   overview: string;
   sourceCount?: number;
   refreshedAt?: string;
+  /** The most recent entry from the wiki's log.md — what the last refresh
+   *  changed, in the refresher's own words. The only place the system explains
+   *  itself rather than just showing a diff. */
+  lastChange?: { heading: string; body: string };
 }
 
 /** A node in the user's own organisation. Derived from note paths, stored nowhere. */

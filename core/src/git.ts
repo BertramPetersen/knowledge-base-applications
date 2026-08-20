@@ -19,7 +19,17 @@ export interface SyncResult {
 }
 
 export class VaultGit {
-  constructor(private run: RunGit, private branch = 'main') {}
+  // Written out rather than as constructor parameter properties: core is
+  // exercised directly with `node --experimental-strip-types`, and strip-only
+  // mode cannot handle them. A file that only runs after a bundler is a file
+  // that cannot be tested without one.
+  private run: RunGit;
+  private branch: string;
+
+  constructor(run: RunGit, branch = 'main') {
+    this.run = run;
+    this.branch = branch;
+  }
 
   private async git(...args: string[]) {
     const r = await this.run(args);
@@ -106,6 +116,31 @@ export class VaultGit {
   async changedBetween(from: string, to = 'HEAD'): Promise<string[]> {
     return (await this.git('diff', '--name-only', `${from}..${to}`)).split('\n').filter(Boolean);
   }
+
+  /**
+   * Recent commits with the files they touched.
+   *
+   * One `git log` rather than a log plus a diff per commit: the record
+   * separators keep it parseable, and this runs on every app launch.
+   */
+  async recent(limit = 60): Promise<import('./activity.ts').Commit[]> {
+    // \x1e between commits, \x1f between fields — bytes that cannot occur in a
+    // commit message, unlike any punctuation that looked safe until it wasn't.
+    const out = await this.git(
+      'log', `-${limit}`, '--name-status', '--date=iso-strict',
+      '--pretty=format:\x1e%H\x1f%an <%ae>\x1f%aI\x1f%s');
+    return out.split('\x1e').filter((c) => c.trim()).map((chunk) => {
+      const [header, ...lines] = chunk.split('\n');
+      const [sha, author, at, message] = header.split('\x1f');
+      return {
+        sha, author, at, message,
+        files: lines.filter(Boolean).map((l) => {
+          const [status, ...rest] = l.split('\t');
+          return { path: rest[rest.length - 1], status: status[0] as 'A' | 'M' | 'D' };
+        }).filter((f) => f.path),
+      };
+    });
+  }
 }
 
 /**
@@ -125,4 +160,5 @@ export function autoSync(git: VaultGit, intervalMs: number,
     now: fire,
     stop() { clearTimeout(timer); },
   };
+
 }

@@ -90,6 +90,34 @@ export async function listRepos(auth: TokenSource): Promise<RepoRef[]> {
 }
 
 /**
+ * Recent commits and the files each touched.
+ *
+ * Two round-trips per commit is the price of the REST API: the list endpoint
+ * omits file lists, so each commit has to be fetched. Bounded to a handful,
+ * because this answers "what happened lately", and lately is short.
+ */
+export async function listCommits(auth: TokenSource, repo: RepoRef, limit = 15) {
+  const list = await call<{ sha: string }[]>(
+    auth, `/repos/${repo.owner}/${repo.name}/commits?sha=${encodeURIComponent(repo.branch)}&per_page=${limit}`);
+  const full = await Promise.all(list.map((c) =>
+    call<{
+      sha: string; commit: { author: { name: string; email: string; date: string }; message: string };
+      files?: { filename: string; status: string }[];
+    }>(auth, `/repos/${repo.owner}/${repo.name}/commits/${c.sha}`)));
+  return full.map((c) => ({
+    sha: c.sha,
+    author: `${c.commit.author.name} <${c.commit.author.email}>`,
+    message: c.commit.message.split('\n')[0],
+    at: c.commit.author.date,
+    files: (c.files ?? []).map((f) => ({
+      path: f.filename,
+      // GitHub spells them out; the shared model uses git's own letters.
+      status: (f.status === 'added' ? 'A' : f.status === 'removed' ? 'D' : 'M') as 'A' | 'M' | 'D',
+    })),
+  }));
+}
+
+/**
  * Every path and content hash in the vault, in one request.
  *
  * This is what makes syncing a phone over cellular reasonable: the tree is a few

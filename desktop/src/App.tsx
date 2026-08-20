@@ -3,8 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   loadVault, buildIndex, search, tagCounts, notesByTag, notesInFolder,
   parseNote, serializeNote, moveNote, resolveLink, withBody, withNote, withoutNote,
-  VaultGit, autoSync,
-  type Folder, type Note, type Vault, type SyncResult,
+  VaultGit, autoSync, summarise,
+  type Change, type Folder, type Note, type Vault, type SyncResult,
 } from '@kb/core';
 import { tauriVault, tauriGit } from './tauriVault.ts';
 import { Markdown } from '@kb/core/react';
@@ -18,6 +18,7 @@ import { FolderTree } from './FolderTree.tsx';
  */
 type Scope =
   | { kind: 'all' }
+  | { kind: 'activity' }
   | { kind: 'tag'; name: string }
   | { kind: 'folder'; path: string };
 
@@ -46,6 +47,10 @@ export default function App() {
   // order — it becomes real on the first write.
   const [pendingFolders, setPendingFolders] = useState<string[]>([]);
   const [newFolder, setNewFolder] = useState<string | null>(null);
+  const [changes, setChanges] = useState<Change[]>([]);
+  // Per device, not in the vault: "have I seen this" is about this screen, and
+  // syncing it would mark things read on the laptop because the phone looked.
+  const [seenAt, setSeenAt] = useState(() => localStorage.getItem('activitySeen') ?? '');
 
   useEffect(() => {
     if (!vaultPath) void invoke<string>('default_vault').then(setVaultPath).catch((e) => setError(String(e)));
@@ -81,6 +86,15 @@ export default function App() {
   const syncer = useMemo(() => (git ? autoSync(git, 60_000, setStatus) : null), [git]);
   useEffect(() => () => syncer?.stop(), [syncer]);
 
+  // Refreshed whenever the vault is, which is also whenever a pull brought new
+  // commits in — the two questions have the same answer.
+  useEffect(() => {
+    if (!git || !vault) return;
+    void git.recent(80).then((c) => setChanges(summarise(c, vault))).catch(() => {});
+  }, [git, vault]);
+
+  const unseen = changes.filter((c) => c.at > seenAt).length;
+
   const index = useMemo(() => (vault ? buildIndex(vault) : null), [vault]);
   const counts = useMemo(() => (vault ? tagCounts(vault) : new Map<string, number>()), [vault]);
 
@@ -106,6 +120,13 @@ export default function App() {
   }, [selected]);
 
   const openNote = (id: string) => { setSel({ kind: 'note', id }); setEditing(false); };
+
+  const openActivity = () => {
+    browse({ kind: 'activity' });
+    const now = new Date().toISOString();
+    localStorage.setItem('activitySeen', now);
+    setSeenAt(now);
+  };
   const browse = (s: Scope) => { setScope(s); setQuery(''); if (sel?.kind === 'wiki') setSel(null); };
 
   // Writes are chained rather than fired in parallel. Each one re-reads the file
@@ -209,6 +230,15 @@ export default function App() {
                    if (e.key === 'Escape') setNewFolder(null);
                  }} />
         )}
+
+        <button className="tag" aria-selected={scope.kind === 'activity' && sel?.kind !== 'wiki'}
+                onClick={openActivity}
+                title="What the enrichment job did while you were away">
+          <span>Overnight</span>
+          {unseen > 0
+            ? <span className="count badge">{unseen}</span>
+            : <span className="count">{changes.length}</span>}
+        </button>
 
         {wikis.length > 0 && <h2>Wikis</h2>}
         {wikis.map((w) => (

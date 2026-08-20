@@ -113,9 +113,12 @@ export async function loadVault(source: VaultSource): Promise<Vault> {
     ? parseTags(await source.read('tags.md')) : new Map<string, Tag>();
 
   const wikis = new Map<string, Wiki>();
+  const wikiPaths = new Set(paths);
   await Promise.all(paths.filter((p) => p.startsWith('wikis/') && p.endsWith('overview.md'))
     .map(async (p) => {
       const raw = await source.read(p);
+      const logPath = p.replace(/overview\.md$/, 'log.md');
+      const log = wikiPaths.has(logPath) ? await source.read(logPath).catch(() => '') : '';
       const fm = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
       const get = (k: string) => fm?.[1].match(new RegExp(`^${k}:\\s*(.*)$`, 'm'))?.[1]?.trim();
       const tag = get('tag') ?? p.split('/')[1];
@@ -123,6 +126,7 @@ export async function loadVault(source: VaultSource): Promise<Vault> {
         tag, overview: (fm ? fm[2] : raw).trim(),
         sourceCount: Number(get('sourceCount')) || undefined,
         refreshedAt: get('refreshedAt'),
+        lastChange: lastLogEntry(log),
       });
     }));
 
@@ -191,6 +195,16 @@ export async function moveNote(source: VaultSource, from: NoteId, to: NoteId): P
   const content = await source.read(from);
   await source.write(to, content);
   await source.remove?.(from);
+}
+
+/** log.md is append-only, newest last, each entry a `## …` heading plus prose. */
+function lastLogEntry(log: string): { heading: string; body: string } | undefined {
+  const at = log.lastIndexOf('\n## ');
+  const start = at === -1 ? (log.startsWith('## ') ? 0 : -1) : at + 1;
+  if (start === -1) return undefined;
+  const [heading, ...rest] = log.slice(start).split('\n');
+  const body = rest.join('\n').trim();
+  return { heading: heading.replace(/^##\s*/, '').trim(), body };
 }
 
 export const notesByTag = (v: Vault, tag: string): Note[] =>

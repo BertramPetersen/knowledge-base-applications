@@ -178,3 +178,11 @@ body {
   font-size: 0.75rem; padding: 8px; cursor: pointer;
 }
 .grow { flex: 1; }
+
+/* A dot, not a number: on a tab bar the count competes with the label for the
+   same few pixels, and "there is something new" is the whole message. */
+.tabs .dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 3px;
+  background: var(--accent); margin-left: 5px; vertical-align: middle;
+}
+.row[data-fresh='true'] { border-left: 2px solid var(--accent); }

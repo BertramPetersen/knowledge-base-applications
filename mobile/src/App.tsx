@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   loadVault, buildIndex, search, notesByTag, resolveLink,
-  parseNote, serializeNote, withBody, withNote,
-  type Note, type Vault,
+  parseNote, serializeNote, withBody, withNote, summarise,
+  type Change, type Note, type Vault,
 } from '@kb/core';
 import { Markdown } from '@kb/core/react';
 import { cachedVault, getMeta, setMeta } from './store.ts';
 import { sync, lastSynced, markSeen, seenMap, type SyncResult } from './sync.ts';
-import { checkAccess, type RepoRef } from './github.ts';
+import { checkAccess, listCommits, type RepoRef } from './github.ts';
 import { token, completeSignIn, signedIn as isSignedIn, signOut } from './auth.ts';
 import { Setup } from './Setup.tsx';
 
-type Tab = 'notes' | 'wikis' | 'revisit';
+type Tab = 'notes' | 'overnight' | 'wikis' | 'revisit';
 
 export default function App() {
   const [repo, setRepo] = useState<RepoRef | null>(null);
@@ -25,6 +25,10 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [seen, setSeen] = useState<Record<string, string>>({});
   const [online, setOnline] = useState(navigator.onLine);
+  const [changes, setChanges] = useState<Change[]>([]);
+  // Per device: "have I seen this" is about this screen, and syncing it would
+  // mark things read on the phone because the laptop looked.
+  const [seenAt, setSeenAt] = useState(() => localStorage.getItem('activitySeen') ?? '');
 
   const source = useMemo(cachedVault, []);
 
@@ -54,6 +58,12 @@ export default function App() {
     try {
       const r: SyncResult = await sync(token, repo);
       await reload();
+      // Only after a sync: the commits and the notes they describe have to come
+      // from the same moment, or an entry points at a note this device lacks.
+      try {
+        const v = await loadVault(source);
+        setChanges(summarise(await listCommits(token, repo), v));
+      } catch { /* activity is a nicety; a failure here must not fail the sync */ }
       setStatus(r.conflicts.length ? `conflict: ${r.conflicts[0].split('/').pop()}` : r.message);
     } catch (e) {
       setStatus(navigator.onLine ? `sync failed: ${e instanceof Error ? e.message : e}` : 'offline');
@@ -82,6 +92,13 @@ export default function App() {
       .sort((a, b) => (seen[a.id] ?? '').localeCompare(seen[b.id] ?? ''))
       .slice(0, 12);
   }, [vault, seen]);
+
+  const openOvernight = () => {
+    setTab('overnight');
+    const now = new Date().toISOString();
+    localStorage.setItem('activitySeen', now);
+    setSeenAt(now);
+  };
 
   const openNote = async (id: string) => {
     setOpen({ kind: 'note', id });
@@ -178,7 +195,8 @@ export default function App() {
   return (
     <div className="screen">
       <header className="bar">
-        <h1>{tab === 'notes' ? 'Notes' : tab === 'wikis' ? 'Wikis' : 'Revisit'}</h1>
+        <h1>{tab === 'notes' ? 'Notes' : tab === 'overnight' ? 'Overnight'
+             : tab === 'wikis' ? 'Wikis' : 'Revisit'}</h1>
         <span className="grow" />
         <button className="signout" title={`${repo.owner}/${repo.name}`}
                 onClick={() => void signOut().then(() => { setRepo(null); setAuthed(false); })}>
@@ -202,6 +220,25 @@ export default function App() {
             <span className="row-meta">{n.created ?? ''}{n.tags.length ? ` · ${n.tags.join(', ')}` : ''}</span>
           </button>
         ))}
+        {tab === 'overnight' && changes.map((c) => (
+          <button key={`${c.sha}-${c.kind === 'wiki' ? c.tag : c.id}`} className="row"
+                  data-fresh={c.at > seenAt}
+                  onClick={() => (c.kind === 'wiki'
+                    ? setOpen({ kind: 'wiki', tag: c.tag })
+                    : void openNote(c.id))}>
+            <span className="row-title">{c.kind === 'wiki' ? c.tag : c.title}</span>
+            <span className="row-preview">
+              {c.kind === 'wiki'
+                ? c.heading ?? 'refreshed'
+                : `${c.added ? 'captured and tagged' : 'tagged'}${c.tags.length ? ` · ${c.tags.join(', ')}` : ''}`}
+            </span>
+            <span className="row-meta">{new Date(c.at).toLocaleString(undefined,
+              { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+          </button>
+        ))}
+        {tab === 'overnight' && !changes.length && (
+          <div className="empty">Nothing yet — the job runs every two hours</div>
+        )}
         {tab === 'wikis' && wikis.map((w) => (
           <button key={w.tag} className="row" onClick={() => setOpen({ kind: 'wiki', tag: w.tag })}>
             <span className="row-title">{w.tag}</span>
@@ -223,9 +260,12 @@ export default function App() {
       <button className="fab" onClick={() => void capture()} aria-label="New note">＋</button>
 
       <nav className="tabs">
-        {(['notes', 'wikis', 'revisit'] as Tab[]).map((t) => (
-          <button key={t} aria-selected={tab === t} onClick={() => setTab(t)}>
-            {t === 'notes' ? 'Notes' : t === 'wikis' ? 'Wikis' : 'Revisit'}
+        {(['notes', 'overnight', 'wikis', 'revisit'] as Tab[]).map((t) => (
+          <button key={t} aria-selected={tab === t}
+                  onClick={() => (t === 'overnight' ? openOvernight() : setTab(t))}>
+            {t === 'notes' ? 'Notes' : t === 'overnight' ? 'Overnight'
+             : t === 'wikis' ? 'Wikis' : 'Revisit'}
+            {t === 'overnight' && changes.some((c) => c.at > seenAt) && <span className="dot" />}
           </button>
         ))}
       </nav>

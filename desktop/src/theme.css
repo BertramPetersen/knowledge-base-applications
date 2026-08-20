@@ -229,3 +229,25 @@ body {
   background: var(--paper); border: 1px solid var(--line);
   border-radius: 999px; padding: 1px 6px; max-width: 200px;
 }
+
+/* ── overnight ───────────────────────────────────────────────────────────── */
+/* A count that is news reads differently from a count that is inventory: the
+   badge says "since you last looked", the plain number says "in total". */
+.tag .count.badge {
+  background: var(--accent); color: var(--accent-ink);
+  border-radius: 999px; padding: 0 6px; opacity: 1; font-weight: 600;
+}
+.tag[aria-selected='true'] .count.badge { background: var(--accent-ink); color: var(--accent); }
+
+.item .detail {
+  display: block; font-size: 0.75rem; color: var(--ink-muted); margin-top: 4px;
+  /* Two lines of the refresher's own explanation. One is too little to say
+     anything; the whole entry belongs on the wiki page, not in a list row. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.item[data-fresh='true'] { border-left: 2px solid var(--accent); }
+.item[data-fresh='true'] .title::after {
+  content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 3px;
+  background: var(--accent); margin-left: 6px; vertical-align: middle;
+}
