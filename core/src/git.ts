@@ -8,7 +8,13 @@
  * Platform-agnostic in shape: it takes a `run` function, so the Tauri shell
  * supplies process execution and this stays testable without one.
  */
+import { parseNote, serializeNote } from './frontmatter.ts';
+
 export type RunGit = (args: string[]) => Promise<{ stdout: string; stderr: string; code: number }>;
+
+/** Writing a resolved file back. Optional: without it a conflict aborts, which
+ *  is what happened before this existed. */
+export type WriteFile = (path: string, content: string) => Promise<void>;
 
 export interface SyncResult {
   pulled: number;
@@ -25,10 +31,12 @@ export class VaultGit {
   // that cannot be tested without one.
   private run: RunGit;
   private branch: string;
+  private writeFile?: WriteFile;
 
-  constructor(run: RunGit, branch = 'main') {
+  constructor(run: RunGit, branch = 'main', writeFile?: WriteFile) {
     this.run = run;
     this.branch = branch;
+    this.writeFile = writeFile;
   }
 
   private async git(...args: string[]) {
@@ -83,14 +91,23 @@ export class VaultGit {
       const out = await this.git('pull', '--rebase', '--autostash', 'origin', this.branch);
       pulledCount = (out.match(/^\s*\S+\s+\|/gm) ?? []).length;
     } catch (e) {
-      // A rebase conflict leaves the repo mid-operation. Abort and hand back a
-      // clean tree: an app silently sitting in a conflicted rebase is worse than
-      // one that says it could not sync.
-      await this.run(['rebase', '--abort']).catch(() => {});
-      return {
-        pulled: 0, pushed: false, committed, conflict: true,
-        message: `Sync paused: ${(e as Error).message}. Local work is committed and safe.`,
-      };
+      // Most "conflicts" here are not disagreements. The job enriches the very
+      // notes being written, so it edits frontmatter and ## Related on a file
+      // whose prose changed locally in the same minutes — two sides touching
+      // parts neither claims. Those are merged rather than escalated.
+      const resolved = await this.resolveOwnedConflicts();
+      if (resolved === 'resolved') {
+        pulledCount = 1;
+      } else {
+        // A real disagreement, or nothing that can be reasoned about. Abort and
+        // hand back a clean tree: an app silently sitting in a conflicted
+        // rebase is worse than one that says it could not sync.
+        await this.run(['rebase', '--abort']).catch(() => {});
+        return {
+          pulled: 0, pushed: false, committed, conflict: true,
+          message: `Sync paused: ${(e as Error).message}. Local work is committed and safe.`,
+        };
+      }
     }
 
     let pushed = false;
@@ -140,6 +157,55 @@ export class VaultGit {
         }).filter((f) => f.path),
       };
     });
+  }
+
+  /**
+   * Merge the conflicts the two authors were never really having.
+   *
+   * A note has two owners by design: the person writes the prose, the pipeline
+   * writes `tags`, `enrichedAt` and the `## Related` block. Git sees one file
+   * and calls that a conflict. Reconstructing the note from the pipeline's
+   * version with the person's body restores what both of them meant.
+   *
+   * Only when the pipeline left the prose alone. The capture sync *can* rewrite
+   * a body when the source changed upstream, and two genuine edits to the same
+   * prose is a question only a person can answer — so that still aborts.
+   */
+  private async resolveOwnedConflicts(): Promise<'resolved' | 'cannot'> {
+    if (!this.writeFile) return 'cannot';
+
+    const listing = await this.run(['diff', '--name-only', '--diff-filter=U']);
+    const paths = listing.stdout.split('\n').map((p) => p.trim()).filter(Boolean);
+    if (!paths.length) return 'cannot';
+
+    const stage = async (n: number, path: string) => {
+      const r = await this.run(['show', `:${n}:${path}`]);
+      return r.code === 0 ? r.stdout : null;
+    };
+
+    for (const path of paths) {
+      if (!path.endsWith('.md') || path.startsWith('wikis/')) return 'cannot';
+
+      // 1 is the common ancestor, 2 the branch being rebased onto — which during
+      // a pull is the remote, so the pipeline — and 3 the local commit replayed.
+      const [base, theirs, mine] = await Promise.all(
+        [1, 2, 3].map((n) => stage(n, path)));
+      if (!base || !theirs || !mine) return 'cannot';
+
+      const b = parseNote(path, base);
+      const pipeline = parseNote(path, theirs);
+      const local = parseNote(path, mine);
+
+      if (pipeline.body !== b.body) return 'cannot';   // both rewrote the prose
+
+      // `theirs` as the template keeps the pipeline's frontmatter key order, so
+      // the merge does not produce a diff against the job on the next run.
+      await this.writeFile(path, serializeNote({ ...pipeline, body: local.body }, theirs));
+      await this.git('add', path);
+    }
+
+    const cont = await this.run(['-c', 'core.editor=true', 'rebase', '--continue']);
+    return cont.code === 0 ? 'resolved' : 'cannot';
   }
 }
 

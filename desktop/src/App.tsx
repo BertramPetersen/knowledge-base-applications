@@ -58,7 +58,12 @@ export default function App() {
   }, [vaultPath]);
 
   const source = useMemo(() => (vaultPath ? tauriVault(vaultPath) : null), [vaultPath]);
-  const git = useMemo(() => (vaultPath ? new VaultGit(tauriGit(vaultPath)) : null), [vaultPath]);
+  // The writer is what lets sync resolve a conflict instead of aborting: the
+  // pipeline owns the frontmatter, this app owns the prose, and merging the two
+  // needs somewhere to put the result.
+  const git = useMemo(
+    () => (vaultPath ? new VaultGit(tauriGit(vaultPath), 'main', tauriVault(vaultPath).write) : null),
+    [vaultPath]);
 
   const reload = useCallback(async () => {
     if (!source) return;
